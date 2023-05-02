@@ -57,9 +57,13 @@ int SocketServer :: Init ( const char* port, uint32_t flags, sock_data_handler h
 	HANDLE_ERROR(m_handlerCB == NULL, "MsgData call back not registered - failed", -1);
 	m_cbData = cbData;
 
+	HANDLE_ERROR(listen(m_serverFD, 100) < 0, "Listen() failed", -1);
+
 	m_listenerThread = std:: thread(&SocketServer::listenerThreadFunc, this);
 
 	std:: cout << "Socket server initialized " << std:: endl;
+
+	m_garbageCollectorThread = std:: thread(&SocketServer::garbageCollectorThread, this);
 
 	return 0;
 }
@@ -69,6 +73,8 @@ void SocketServer :: Uninit ( void )
 	m_runThreads = 0;
 	if(m_listenerThread.joinable())
 		m_listenerThread.join();
+	if(m_garbageCollectorThread.joinable())
+		m_garbageCollectorThread.join();
 
 	for(int i = 0; i < m_clientThreadsFinished.size(); i++)
 	{
@@ -102,33 +108,15 @@ void SocketServer :: listenerThreadFunc ( void )
 {
 	while(m_runThreads)
 	{
-		if(listen(m_serverFD, 100) == 0)
+		for(int i = 0; i < m_clientThreads.size(); i++)
 		{
-			std:: cout << "New client connection request received!" << std:: endl;
-			for(int i = 0; i < m_clientThreads.size(); i++)
+			if(!m_clientThreads[i])
 			{
-				if(!m_clientThreads[i])
-				{
-					struct sockaddr_in clientAddress;
-					int addrlen = sizeof(clientAddress);
-					int clientFD = accept(m_serverFD, (sockaddr*)&clientAddress, (socklen_t*)&addrlen);
-					m_clientThreads[i] = new std:: thread(&SocketServer::clientThreadFunc, this, clientFD, i, clientAddress);
-					break;
-				}
-			}
-		}
-		else
-		{
-			for(int i = 0; i < m_clientThreadsFinished.size(); i++)
-			{
-				if(m_clientThreadsFinished[i])
-				{
-					if(m_clientThreadsFinished[i]->joinable())
-						m_clientThreadsFinished[i]->join();
-
-					delete m_clientThreadsFinished[i];
-					m_clientThreadsFinished[i] = NULL;
-				}
+				struct sockaddr_in clientAddress;
+				int addrlen = sizeof(clientAddress);
+				int clientFD = accept(m_serverFD, (sockaddr*)&clientAddress, (socklen_t*)&addrlen);
+				m_clientThreads[i] = new std:: thread(&SocketServer::clientThreadFunc, this, clientFD, i, clientAddress);
+				break;
 			}
 		}
 	}
@@ -181,4 +169,26 @@ int SocketServer :: SendResponse(int clientId, const char* data, uint16_t dataSi
 		std:: cout << "SendResponse Failed: " << std:: endl;
 
 	return 0;
+}
+
+void SocketServer :: garbageCollectorThread ( void )
+{
+	while(m_runThreads)
+	{
+		for(int i = 0; i < m_clientThreadsFinished.size(); i++)
+		{
+			if(m_clientThreadsFinished[i])
+			{
+				std:: cout << "Removing client thread " << i << std:: endl;
+				if(m_clientThreadsFinished[i]->joinable())
+					m_clientThreadsFinished[i]->join();
+
+				delete m_clientThreadsFinished[i];
+				m_clientThreadsFinished[i] = NULL;
+			}
+		}
+
+
+		usleep(1000000);
+	}
 }

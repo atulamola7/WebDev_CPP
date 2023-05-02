@@ -27,6 +27,7 @@ class SocketServer
 	protected:
 
 		std:: thread m_listenerThread;
+		std:: thread m_garbageCollectorThread;
 		std:: vector <std:: thread*> m_clientThreads;
 		std:: vector <std:: thread*> m_clientThreadsFinished;
 		std:: vector <int> m_connectedClientFDs;
@@ -34,6 +35,7 @@ class SocketServer
 
 		void clientThreadFunc ( int, int, sockaddr_in );
 		void listenerThreadFunc ( void );
+		void garbageCollectorThread ( void );
 
 		int m_serverFD;
 
